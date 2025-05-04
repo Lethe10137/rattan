@@ -165,6 +165,13 @@ where
     D::Sender: Send + Sync,
 {
     fn enqueue(&self, packet: D::Packet) -> Result<(), Error> {
+        log_packet_link(
+            &self.log_tx,
+            self.id,
+            &packet,
+            PktAction::Send,
+            self.base_ts,
+        );
         log_packet(&self.log_tx, &packet, PktAction::Send, self.base_ts);
         Ok(self
             .sender
@@ -237,6 +244,7 @@ where
         for d in driver.into_iter() {
             let notify = AsyncFd::new(d.raw_fd())?;
             tokio::spawn(Self::recv(
+                id,
                 flow_map.clone(),
                 notify,
                 d.into_receiver(),
@@ -253,6 +261,7 @@ where
     }
 
     async fn recv(
+        id: VirtualEthernetId,
         flow_map: Arc<FlowMap>,
         notify: AsyncFd<i32>,
         mut receiver: D::Receiver,
@@ -269,6 +278,7 @@ where
                             let id = flow_map.get_id(desc, log_tx.as_ref(), base_ts);
                             p.set_flow_id(id);
                         }
+                        log_packet_link(&log_tx, id, &p, PktAction::Recv, base_ts);
                         log_packet(&log_tx, &p, PktAction::Recv, base_ts);
                         let _ = sender.send(p).await;
                     }
@@ -278,6 +288,27 @@ where
                 Err(_would_block) => continue,
             }
         }
+    }
+}
+
+fn log_packet_link<T: Packet>(
+    log_tx: &Option<UnboundedSender<RattanLogOp>>,
+    veth_id: VirtualEthernetId,
+    p: &T,
+    action: PktAction,
+    base_ts: i64,
+) {
+    if let Some(ref tx) = log_tx {
+        let ts = ((get_clock_ns() - base_ts) / 1000)
+            .max(0)
+            .min(u32::MAX as i64) as u32;
+        tx.send(RattanLogOp::Link(
+            veth_id.0,
+            ts,
+            p.length().min(u16::MAX as usize) as u16,
+            action,
+        ))
+        .ok();
     }
 }
 

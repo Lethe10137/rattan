@@ -6,7 +6,9 @@ use std::{
 };
 
 use backon::{BlockingRetryable, ExponentialBuilder};
+use log::PktAction;
 use once_cell::sync::OnceCell;
+use rtnetlink::packet_utils::byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 // use nix::{
 //     sched::{sched_setaffinity, CpuSet},
 //     unistd::Pid,
@@ -222,8 +224,21 @@ where
                 let mut flow_map_file = std::io::BufWriter::new(flow_map_file);
                 while let Some(entry) = log_rx.blocking_recv() {
                     match entry {
+                        RattanLogOp::Link(veth_id, time, length, action) => match action {
+                            PktAction::Recv => {
+                                file.write_u16::<LittleEndian>(veth_id).unwrap();
+                                file.write_u16::<LittleEndian>(length).unwrap();
+                                file.write_u32::<LittleEndian>(time).unwrap();
+                            }
+                            PktAction::Send => {
+                                file.write_u16::<LittleEndian>(veth_id + 0x8000).unwrap();
+                                file.write_u16::<LittleEndian>(length).unwrap();
+                                file.write_u32::<LittleEndian>(time).unwrap();
+                            }
+                            _ => {}
+                        },
                         RattanLogOp::Entry(entry) => {
-                            file.write_all(&entry).unwrap();
+                            // file.write_all(&entry).unwrap();
                         }
                         RattanLogOp::Flow(flow_id, base_ts, flow_desc) => {
                             let flow_entry = log::FlowEntry {

@@ -8,6 +8,7 @@ use crate::cells::FlowDesc;
 pub enum RattanLogOp {
     Entry(Vec<u8>),
     Flow(u32, i64, FlowDesc),
+    Link(u16, u32, u16, PktAction),
     End,
 }
 
